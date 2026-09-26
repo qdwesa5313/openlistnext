@@ -15,7 +15,13 @@ import { useLoading, useRouter, useT } from "~/hooks"
 import { setSettings } from "~/store"
 import { setArchiveExtensions } from "~/store/archive"
 import { Resp } from "~/types"
-import { base_path, bus, handleRespWithoutAuthAndNotify, r } from "~/utils"
+import {
+  base_path,
+  bus,
+  handleRespWithoutAuthAndNotify,
+  initPluginEngine,
+  r,
+} from "~/utils"
 import { MustUser, UserOrGuest } from "./MustUser"
 import "./index.css"
 import { globalStyles } from "./theme"
@@ -27,6 +33,7 @@ const Login = lazy(() => import("~/pages/login"))
 const App: Component = () => {
   const t = useT()
   globalStyles()
+  initPluginEngine()
   const isRouting = useIsRouting()
   const { to, pathname } = useRouter()
   const onTo = (path: string) => {
@@ -62,7 +69,7 @@ const App: Component = () => {
             announcement:
               "欢迎使用 OpenListNext! (运行于 Serverless 离线 fallback 模式)",
             main_color: "#1890ff",
-            home_container: "hope_container",
+            home_container: "max_980px",
             home_icon: "openlistnext",
             settings_layout: "simple",
             version: "v4.2.3",

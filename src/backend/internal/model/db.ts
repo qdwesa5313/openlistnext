@@ -28,16 +28,16 @@ export const defaultDb = {
     },
     {
       key: "pagination_type",
-      value: "all",
+      value: "pagination",
       type: "select",
-      options: "all,pagination,load_more",
+      options: "all,pagination,load_more,auto_load_more",
       help: "Pagination Type",
       group: 1,
       flag: 0,
     },
     {
       key: "default_page_size",
-      value: "30",
+      value: "20",
       type: "number",
       help: "Default Page Size",
       group: 1,
@@ -103,9 +103,9 @@ export const defaultDb = {
     },
     {
       key: "home_container",
-      value: "hope_container",
+      value: "max_980px",
       type: "select",
-      options: "hope_container,max_980px",
+      options: "max_980px,hope_container",
       help: "Home Container Width",
       group: 2,
       flag: 0,
@@ -116,22 +116,6 @@ export const defaultDb = {
       type: "select",
       options: "list,responsive",
       help: "Settings Layout Mode",
-      group: 2,
-      flag: 0,
-    },
-    {
-      key: "customize_head",
-      value: "",
-      type: "text",
-      help: "Custom Head HTML/CSS",
-      group: 2,
-      flag: 0,
-    },
-    {
-      key: "customize_body",
-      value: "",
-      type: "text",
-      help: "Custom Body Script",
       group: 2,
       flag: 0,
     },
@@ -525,78 +509,76 @@ export const defaultDb = {
     },
 
     // Group 14: OTHER (https://doc.oplist.org/configuration/other)
-    // Aria2
+    // 115 / 123 / PikPak / Thunder Temp Directories
     {
-      key: "aria2_uri",
-      value: "http://localhost:6800/jsonrpc",
-      type: "string",
-      help: "Aria2 RPC Address",
-      group: 14,
-      flag: 0,
-    },
-    {
-      key: "aria2_secret",
+      key: "115_temp_dir",
       value: "",
       type: "string",
-      help: "Aria2 RPC Token / Secret",
+      help: "115 Temp Directory",
       group: 14,
       flag: 0,
     },
     {
-      key: "aria2_path",
+      key: "115_open_temp_dir",
       value: "",
       type: "string",
-      help: "Aria2 Download Path",
+      help: "115 Open Temp Directory",
       group: 14,
       flag: 0,
     },
     {
-      key: "aria2_keep_files",
-      value: "false",
-      type: "bool",
-      help: "Aria2 Keep Files After Download",
-      group: 14,
-      flag: 0,
-    },
-
-    // qBittorrent
-    {
-      key: "qbittorrent_url",
-      value: "http://localhost:8080",
-      type: "string",
-      help: "qBittorrent Web UI URL",
-      group: 14,
-      flag: 0,
-    },
-    {
-      key: "qbittorrent_seed_time",
-      value: "0",
-      type: "number",
-      help: "qBittorrent Seed Time Limit (Minutes)",
-      group: 14,
-      flag: 0,
-    },
-    {
-      key: "qbittorrent_path",
+      key: "123_temp_dir",
       value: "",
       type: "string",
-      help: "qBittorrent Download Path",
+      help: "123 Pan Temp Directory",
       group: 14,
       flag: 0,
     },
     {
-      key: "qbittorrent_username",
+      key: "123_open_temp_dir",
       value: "",
       type: "string",
-      help: "qBittorrent Username",
+      help: "123 Open Temp Directory",
       group: 14,
       flag: 0,
     },
     {
-      key: "qbittorrent_password",
+      key: "123_open_callback_url",
       value: "",
       type: "string",
-      help: "qBittorrent Password",
+      help: "123 Open Callback URL",
+      group: 14,
+      flag: 0,
+    },
+    {
+      key: "pikpak_temp_dir",
+      value: "",
+      type: "string",
+      help: "PikPak Temp Directory",
+      group: 14,
+      flag: 0,
+    },
+    {
+      key: "thunder_temp_dir",
+      value: "",
+      type: "string",
+      help: "Thunder Temp Directory",
+      group: 14,
+      flag: 0,
+    },
+    {
+      key: "thunder_browser_temp_dir",
+      value: "",
+      type: "string",
+      help: "Thunder Browser Temp Directory",
+      group: 14,
+      flag: 0,
+    },
+    {
+      key: "thunderx_temp_dir",
+      value: "",
+      type: "string",
+      help: "ThunderX Temp Directory",
       group: 14,
       flag: 0,
     },
@@ -650,10 +632,58 @@ export const defaultDb = {
   ],
   metas: [],
   shares: [],
+  plugins: [],
 }
 
 let memoryDb: any = null
 let globalEnvCtx: any = null
+
+// ---- EdgeOne Blob SDK (HTTP API, avoids Redis RESP protocol crashes) ----
+let _blobStore: any = null
+let _blobChecked = false
+
+async function getBlobStore(): Promise<any | null> {
+  if (_blobChecked) return _blobStore
+  _blobChecked = true
+  try {
+    // @ts-ignore
+    const { getStore } = await import("@edgeone/pages-blob")
+    // In Makers Functions, projectId/token are auto-injected by the runtime.
+    // TypeScript types require them, but the SDK works without them inside Functions.
+    _blobStore = getStore({
+      name: "openlistnext_db",
+      consistency: "strong",
+    } as any)
+  } catch {
+    _blobStore = null
+  }
+  return _blobStore
+}
+
+// ---- Safety net: catch uncaught exceptions from KV binding RESP parser ----
+// Only registered in EdgeOne environments (invoked by getKvBinding detection),
+// so Cloudflare Workers / local Node.js keep their default global error behavior.
+let _respSafetyNetInstalled = false
+function installRespSafetyNet() {
+  if (_respSafetyNetInstalled) return
+  _respSafetyNetInstalled = true
+  if (typeof process === "undefined" || typeof process.on !== "function") return
+  process.on("uncaughtException", (err: any) => {
+    if (
+      err?.message?.includes("RESP") ||
+      err?.message?.includes("Unknown type") ||
+      err?.stack?.includes("processResponses")
+    ) {
+      console.error(
+        "[KV/RESP] Caught uncaught exception from storage binding, continuing:",
+        err.message,
+      )
+      // Do NOT re-throw — let the function instance survive.
+      // Subsequent requests will fall back to memoryDb.
+    }
+    // All other errors: let Node.js default handler process them.
+  })
+}
 
 /**
  * 在请求处理开始时注入当前环境的 KV binding 上下文。
@@ -666,13 +696,19 @@ export function setEnvCtx(env: any) {
 }
 
 /**
- * Universal KV Storage Adapter for Cloudflare Workers
+ * Universal KV / Blob Storage Adapter for EdgeOne Makers & Cloudflare Workers
+ *
+ * Detection order:
+ *   1. @edgeone/pages-blob SDK (EdgeOne — HTTP API, no RESP crashes)
+ *   2. KV namespace binding (Cloudflare Workers native)
+ *   3. CF REST API (env vars)
+ *   4. None (memory fallback)
  */
-export function getKvBinding(envCtx?: any): {
+export async function getKvBinding(envCtx?: any): Promise<{
   binding: any
   platform: string
-  mode: "binding" | "api" | "none"
-} {
+  mode: "binding" | "blob" | "api" | "none"
+}> {
   if (envCtx) {
     globalEnvCtx = envCtx
   }
@@ -682,7 +718,30 @@ export function getKvBinding(envCtx?: any): {
     (typeof process !== "undefined" ? process.env : {})
   const g = typeof globalThis !== "undefined" ? (globalThis as any) : {}
 
+  // 1. EdgeOne Blob SDK (HTTP API — avoids RESP protocol crashes)
+  try {
+    const blobStore = await getBlobStore()
+    if (blobStore) {
+      // Blob SDK only initializes inside the EdgeOne Makers runtime
+      installRespSafetyNet()
+      return {
+        binding: blobStore,
+        platform: "EdgeOne Blob (@edgeone/pages-blob, strong consistency)",
+        mode: "blob",
+      }
+    }
+  } catch {}
+
+  // 2. KV namespace binding (Cloudflare Workers native — no RESP issues)
+  const customKvName =
+    (env && (env.EDGEONE_KV_NAME || env.KV_NAMESPACE || env.KV_NAME)) ||
+    g.EDGEONE_KV_NAME ||
+    g.KV_NAMESPACE
+
   const candidates = [
+    ...(customKvName ? [{ key: customKvName, name: customKvName }] : []),
+    { key: "EDGEONE_KV", name: "EDGEONE_KV" },
+    { key: "EO_KV", name: "EO_KV" },
     { key: "OPENLISTNEXT_KV", name: "OPENLISTNEXT_KV" },
     { key: "OPENLISTNEXT_KV_ID", name: "OPENLISTNEXT_KV_ID" },
     { key: "KV", name: "KV" },
@@ -692,16 +751,30 @@ export function getKvBinding(envCtx?: any): {
 
   for (const c of candidates) {
     const b = (env && env[c.key]) || g[c.key]
-    if (b && typeof b.get === "function" && typeof b.put === "function") {
+    if (
+      b &&
+      typeof b.get === "function" &&
+      (typeof b.put === "function" || typeof b.set === "function")
+    ) {
+      const isEdgeOne =
+        c.key.startsWith("EDGEONE") ||
+        c.key.startsWith("EO") ||
+        Boolean(env && (env.EDGEONE || env.EO_REGION || env.EDGEONE_KV_NAME)) ||
+        Boolean(g.EDGEONE_KV || g.EO_KV)
+      if (isEdgeOne) installRespSafetyNet()
+      const platformName = isEdgeOne
+        ? `EdgeOne KV (${c.name})`
+        : `Cloudflare / EdgeOne KV (${c.name})`
+
       return {
         binding: b,
-        platform: `Cloudflare Workers KV (${c.name})`,
+        platform: platformName,
         mode: "binding",
       }
     }
   }
 
-  // Cloudflare REST API Check
+  // 3. Cloudflare REST API 模式
   const cfAccountId =
     env.CF_ACCOUNT_ID ||
     (typeof process !== "undefined" ? process.env.CF_ACCOUNT_ID : "")
@@ -729,15 +802,33 @@ export function getKvBinding(envCtx?: any): {
 }
 
 async function readFromKv(
-  kvInfo: ReturnType<typeof getKvBinding>,
+  kvInfo: Awaited<ReturnType<typeof getKvBinding>>,
   key = "openlistnext_config",
 ): Promise<any | null> {
   const { binding, mode } = kvInfo
   if (mode === "none" || !binding) return null
 
   try {
-    if (mode === "binding") {
-      const val = await binding.get(key, "text")
+    if (mode === "blob") {
+      // @edgeone/pages-blob SDK: get(key, { type: "json" }) returns parsed object
+      const val = await binding.get(key, { type: "json" })
+      if (val) return val
+      // Fallback: get as text and parse
+      const text = await binding.get(key)
+      if (text) {
+        return typeof text === "string" ? JSON.parse(text) : text
+      }
+    } else if (mode === "binding") {
+      let val: any = null
+      try {
+        // Cloudflare KV 支持 (key, "text")，EdgeOne KV 支持 (key)
+        val = await binding.get(key, "text")
+      } catch {
+        val = await binding.get(key)
+      }
+      if (val === undefined || val === null) {
+        val = await binding.get(key)
+      }
       if (val) {
         return typeof val === "string" ? JSON.parse(val) : val
       }
@@ -752,13 +843,13 @@ async function readFromKv(
       }
     }
   } catch (err) {
-    console.error("[KV Store] Error reading key:", key, err)
+    console.error("[KV/Blob Store] Error reading key:", key, err)
   }
   return null
 }
 
 async function saveToKv(
-  kvInfo: ReturnType<typeof getKvBinding>,
+  kvInfo: Awaited<ReturnType<typeof getKvBinding>>,
   key: string,
   data: any,
 ): Promise<boolean> {
@@ -768,9 +859,25 @@ async function saveToKv(
   const valStr = JSON.stringify(data)
 
   try {
-    if (mode === "binding") {
-      await binding.put(key, valStr)
-      return true
+    if (mode === "blob") {
+      // @edgeone/pages-blob SDK: setJSON(key, value) for structured data
+      if (typeof binding.setJSON === "function") {
+        return (await binding.setJSON(key, data)) !== false
+      }
+      // Fallback: set(key, stringified)
+      if (typeof binding.set === "function") {
+        return (await binding.set(key, valStr)) !== false
+      }
+    } else if (mode === "binding") {
+      // NOTE: only an explicit `false` counts as failure. Cloudflare KV's
+      // put() resolves to void, so `undefined` must stay a success —
+      // otherwise every normal write would be reported as failed.
+      if (typeof binding.put === "function") {
+        return (await binding.put(key, valStr)) !== false
+      }
+      if (typeof binding.set === "function") {
+        return (await binding.set(key, valStr)) !== false
+      }
     } else if (binding.type === "cf_rest") {
       const url = `https://api.cloudflare.com/client/v4/accounts/${binding.accountId}/storage/kv/namespaces/${binding.namespaceId}/values/${key}`
       const res = await fetch(url, {
@@ -784,7 +891,7 @@ async function saveToKv(
       return res.ok
     }
   } catch (err) {
-    console.error("[KV Store] Error writing key:", key, err)
+    console.error("[KV/Blob Store] Error writing key:", key, err)
   }
   return false
 }
@@ -811,6 +918,13 @@ const LEGACY_SETTING_MIGRATIONS: Record<string, { from: any[]; to: string }> = {
     from: ["openlist", "oplist"],
     to: "openlistnext",
   },
+  // 上游 OpenList 的 home_container 默认是 max_980px（内容限宽 980px 居中），
+  // 本项目早期误把默认值设为 hope_container（HopeUI Container 无 maxW，流式全宽），
+  // 导致首页文件列表横向铺满整屏。已写入 KV 的旧默认值需要迁移回限宽布局。
+  home_container: {
+    from: ["hope_container"],
+    to: "max_980px",
+  },
 }
 
 const ensureDefaultSettings = (db: any) => {
@@ -819,29 +933,78 @@ const ensureDefaultSettings = (db: any) => {
     db.settings = []
   }
   let modified = false
+  const newSettings: any[] = []
+  const seenKeys = new Set<string>()
+
   for (const defSetting of defaultDb.settings) {
-    const existing = db.settings.find((s: any) => s.key === defSetting.key)
-    if (!existing) {
-      db.settings.push(JSON.parse(JSON.stringify(defSetting)))
+    seenKeys.add(defSetting.key)
+    const matching = db.settings.filter((s: any) => s.key === defSetting.key)
+    if (matching.length === 0) {
+      newSettings.push(JSON.parse(JSON.stringify(defSetting)))
       modified = true
-      continue
-    }
-    // 旧默认值迁移：KV 中保存的值若等于已知旧默认值，更新为当前默认
-    const migration = LEGACY_SETTING_MIGRATIONS[defSetting.key]
-    if (migration && migration.from.includes(existing.value)) {
-      existing.value = migration.to
-      modified = true
+    } else {
+      // If duplicates existed in KV/storage, pick the one with non-empty value if available
+      const chosen =
+        matching.find((s: any) => s.value && s.value.trim() !== "") ||
+        matching[0]
+      if (
+        chosen.group !== defSetting.group ||
+        chosen.help !== defSetting.help ||
+        chosen.type !== defSetting.type ||
+        chosen.options !== defSetting.options ||
+        chosen.flag !== defSetting.flag
+      ) {
+        chosen.group = defSetting.group
+        chosen.help = defSetting.help
+        chosen.type = defSetting.type
+        chosen.options = defSetting.options
+        chosen.flag = defSetting.flag
+        modified = true
+      }
+      if (matching.length > 1) {
+        modified = true
+      }
+      // 旧默认值迁移：KV 中保存的值若等于已知旧默认值，更新为当前默认
+      const migration = LEGACY_SETTING_MIGRATIONS[defSetting.key]
+      if (migration && migration.from.includes(chosen.value)) {
+        chosen.value = migration.to
+        modified = true
+      }
+      newSettings.push(chosen)
     }
   }
-  if (modified) {
+
+  // Preserve any custom user-added settings not present in defaultDb
+  for (const s of db.settings) {
+    if (s.key && !seenKeys.has(s.key)) {
+      seenKeys.add(s.key)
+      newSettings.push(s)
+    }
+  }
+
+  if (modified || newSettings.length !== db.settings.length) {
+    db.settings = newSettings
     saveDb(db).catch(() => {})
   }
 }
 
 const ensureDefaultStorages = (db: any) => {
   if (!db) return
-  if (!db.storages) {
+  if (!db.storages || !Array.isArray(db.storages)) {
     db.storages = []
+  } else {
+    // Sanitize any corrupt or invalid storages (e.g. driver is undefined/null/empty)
+    db.storages = db.storages.filter(
+      (s: any) =>
+        s &&
+        typeof s === "object" &&
+        typeof s.driver === "string" &&
+        s.driver.trim() !== "" &&
+        s.driver !== "undefined" &&
+        s.driver !== "null" &&
+        typeof s.mount_path === "string" &&
+        s.mount_path.trim() !== "",
+    )
   }
 }
 
@@ -852,13 +1015,45 @@ const ensureDefaultShares = (db: any) => {
   }
 }
 
-export const getDb = async (envCtx?: any) => {
+const ensureDefaultPlugins = (db: any) => {
+  if (!db) return
+  if (!db.plugins) {
+    db.plugins = []
+  }
+}
+
+/**
+ * Request-scoped memoization for getDb().
+ *
+ * A single /api/fs/list triggers 6-8 full KV reads plus a full JSON.parse of
+ * the config. Alibaba ESA caps a request at exactly 8 KV subrequests, so one
+ * directory listing could exhaust the budget on its own.
+ *
+ * Two layers:
+ *  1. in-flight de-duplication — concurrent callers share one KV read.
+ *  2. short-TTL memoization — sequential calls within a request reuse it.
+ *
+ * Trade-off worth knowing: on Workers `env` is shared across requests within
+ * an isolate, so a cache hung directly on it would never expire.
+ * AsyncLocalStorage would give exact per-request scope but is unavailable on
+ * EdgeOne/ESA/Vercel (nodejs_compat is only declared in wrangler.toml). A 1s
+ * TTL is the portable middle ground — worst case a concurrent isolate sees
+ * config up to 1s stale, and saveDb() refreshes the cache on every write.
+ *
+ * TODO: threading `db` down from the handler gives exact per-request scope,
+ * but touches all ~83 call sites.
+ */
+const DB_CACHE_TTL_MS = 1000
+const dbCache = new WeakMap<object, { ts: number; db: any }>()
+const dbInflight = new WeakMap<object, Promise<any>>()
+
+const loadDb = async (envCtx?: any) => {
   if (envCtx) {
     globalEnvCtx = envCtx
   }
 
-  // Priority 1: Cloudflare KV Namespace Storage
-  const kvInfo = getKvBinding(envCtx)
+  // Priority 1: EdgeOne Blob / Cloudflare KV / EdgeOne KV
+  const kvInfo = await getKvBinding(envCtx)
   if (kvInfo.mode !== "none") {
     try {
       const kvConfig = await readFromKv(kvInfo, "openlistnext_config")
@@ -867,6 +1062,7 @@ export const getDb = async (envCtx?: any) => {
         ensureDefaultSettings(memoryDb)
         ensureDefaultStorages(memoryDb)
         ensureDefaultShares(memoryDb)
+        ensureDefaultPlugins(memoryDb)
         return memoryDb
       }
     } catch (err) {
@@ -878,6 +1074,7 @@ export const getDb = async (envCtx?: any) => {
     ensureDefaultSettings(memoryDb)
     ensureDefaultStorages(memoryDb)
     ensureDefaultShares(memoryDb)
+    ensureDefaultPlugins(memoryDb)
     return memoryDb
   }
 
@@ -892,6 +1089,7 @@ export const getDb = async (envCtx?: any) => {
       ensureDefaultSettings(memoryDb)
       ensureDefaultStorages(memoryDb)
       ensureDefaultShares(memoryDb)
+      ensureDefaultPlugins(memoryDb)
       return memoryDb
     } catch (err) {
       console.error("Failed to parse DATABASE_JSON env variable:", err)
@@ -902,38 +1100,90 @@ export const getDb = async (envCtx?: any) => {
   memoryDb = JSON.parse(JSON.stringify(defaultDb))
   ensureDefaultStorages(memoryDb)
   ensureDefaultShares(memoryDb)
+  ensureDefaultPlugins(memoryDb)
   return memoryDb
 }
 
-export const saveDb = async (data: any, envCtx?: any) => {
+export const getDb = async (envCtx?: any) => {
+  if (envCtx) {
+    globalEnvCtx = envCtx
+  }
+  // envCtx is the cache key — without it there is nothing safe to scope to.
+  if (!envCtx) return loadDb(envCtx)
+
+  // 1) Concurrent de-duplication: concurrent callers share a single KV read.
+  const pending = dbInflight.get(envCtx)
+  if (pending) return pending
+
+  // 2) Short-TTL memoization: sequential calls in one request reuse the result.
+  const hit = dbCache.get(envCtx)
+  if (hit && Date.now() - hit.ts < DB_CACHE_TTL_MS) return hit.db
+
+  const promise = loadDb(envCtx)
+    .then((db) => {
+      dbCache.set(envCtx, { ts: Date.now(), db })
+      return db
+    })
+    .finally(() => {
+      dbInflight.delete(envCtx)
+    })
+  dbInflight.set(envCtx, promise)
+  return promise
+}
+
+/**
+ * Persist the config. Returns whether the write actually landed.
+ *
+ * FIX: persistence failures used to be swallowed here with a console.error and
+ * a void return, so callers could not tell a saved change from a lost one.
+ * The next read would then fall back to defaults and silently overwrite real
+ * config — the "config reverted to default" SEV2 in the incident report.
+ *
+ * Throwing is deliberately scoped to *failed writes*: when no KV binding is
+ * configured at all (in-memory / container mode) this keeps the historical
+ * warn-and-continue behavior, so unpersisted deployments are not broken by it.
+ */
+export const saveDb = async (data: any, envCtx?: any): Promise<boolean> => {
   if (envCtx) {
     globalEnvCtx = envCtx
   }
   memoryDb = data
+  // Refresh the request cache so any getDb() later in this request observes
+  // the write rather than a pre-write snapshot.
+  if (envCtx) dbCache.set(envCtx, { ts: Date.now(), db: data })
 
-  // Save to KV Namespace
-  const kvInfo = getKvBinding(envCtx)
-  if (kvInfo.mode !== "none") {
-    const success = await saveToKv(kvInfo, "openlistnext_config", data).catch(
-      (err) => {
-        console.error("[DB] Failed to save to KV:", err)
-        return false
-      },
-    )
-    if (success) {
-      console.log(
-        `[DB] Successfully persisted ${data.storages?.length || 0} storages to KV (${kvInfo.platform})`,
-      )
-    }
-  } else {
+  const kvInfo = await getKvBinding(envCtx)
+  if (kvInfo.mode === "none") {
+    // No persistence configured — not a failed write, just an unpersisted
+    // deployment. Preserve the old non-throwing behavior.
     console.warn(
       "[DB] WARNING: No KV binding found! Storage configuration changes will exist only in memory!",
     )
+    return false
   }
+
+  let success = false
+  try {
+    success = await saveToKv(kvInfo, "openlistnext_config", data)
+  } catch (err) {
+    console.error("[DB] Failed to save to KV:", err)
+    success = false
+  }
+
+  if (!success) {
+    throw new Error(
+      `[DB] Failed to persist config to KV (${kvInfo.platform}); the change was NOT saved`,
+    )
+  }
+
+  console.log(
+    `[DB] Successfully persisted ${data.storages?.length || 0} storages to KV (${kvInfo.platform})`,
+  )
+  return true
 }
 
 export async function getKvStatus(envCtx?: any) {
-  const kvInfo = getKvBinding(envCtx)
+  const kvInfo = await getKvBinding(envCtx)
   const isConfigured = kvInfo.mode !== "none"
   let connected = false
   let error: string | null = null
@@ -968,12 +1218,43 @@ export async function getKvStatus(envCtx?: any) {
 export async function resolvePath(virtualPath: string) {
   const db = await getDb()
 
-  let cleanPath = "/" + virtualPath.split("/").filter(Boolean).join("/")
+  // Normalize ".." / "." segments so callers cannot escape the storage
+  // mount root (path traversal). A leading ".." that pops an empty stack
+  // is clamped to the root instead of escaping upward.
+  const stack: string[] = []
+  // FIX(C-2): backslashes must be normalized BEFORE segmenting, not after.
+  // The old code split on "/" only, so "..\..\.." stayed a single opaque
+  // segment and was pushed verbatim onto the stack; the later
+  // .replace(/\\/g,"/") on physicalPath then turned it into real "..",
+  // escaping the storage root (CWE-22, verified at runtime).
+  for (const seg of String(virtualPath || "")
+    .replace(/\\/g, "/")
+    .split("/")) {
+    if (seg === "" || seg === ".") continue
+    if (seg === "..") {
+      stack.pop()
+      continue
+    }
+    if (seg.includes("\0")) {
+      throw new Error("invalid path: null byte")
+    }
+    stack.push(seg)
+  }
+  let cleanPath = "/" + stack.join("/")
   if (cleanPath === "") {
     cleanPath = "/"
   }
 
-  const activeStorages = (db.storages || []).filter((s: any) => !s.disabled)
+  const activeStorages = (db.storages || []).filter(
+    (s: any) =>
+      !s.disabled &&
+      typeof s.driver === "string" &&
+      s.driver.trim() !== "" &&
+      s.driver !== "undefined" &&
+      s.driver !== "null" &&
+      typeof s.mount_path === "string" &&
+      s.mount_path.trim() !== "",
+  )
 
   if (activeStorages.length === 0) {
     throw new Error(
@@ -1005,7 +1286,15 @@ export async function resolvePath(virtualPath: string) {
         relPath = "/" + relPath
       }
 
-      const addition = JSON.parse(storage.addition || "{}")
+      let addition: any = {}
+      try {
+        addition =
+          typeof storage.addition === "string"
+            ? JSON.parse(storage.addition || "{}")
+            : storage.addition || {}
+      } catch {
+        addition = {}
+      }
       const defaultRoot = "/"
       let rootFolder =
         addition.root_folder_path !== undefined
@@ -1018,6 +1307,21 @@ export async function resolvePath(virtualPath: string) {
       // Keep root_folder_path intact (e.g. Windows "C:/data" must not be
       // split into segments) while normalizing separators and slashes.
       const physicalPath = (parts.join("/") || "/").replace(/\/{2,}/g, "/")
+
+      // FIX(C-2): defense-in-depth. Even if the normalization above ever
+      // regresses, the resolved physical path may never leave rootFolder.
+      // A rootFolder of "" or "/" means "no restriction", hence the skip.
+      const rootNorm =
+        String(rootFolder || "/")
+          .replace(/\\/g, "/")
+          .replace(/\/+$/, "") || "/"
+      if (
+        rootNorm !== "/" &&
+        physicalPath !== rootNorm &&
+        !physicalPath.startsWith(rootNorm + "/")
+      ) {
+        throw new Error("path traversal blocked: escapes storage root")
+      }
 
       return {
         storage,
@@ -1081,4 +1385,22 @@ export async function getStorages() {
 export async function getMetas() {
   const db = await getDb()
   return db.metas || []
+}
+
+export async function getPlugins() {
+  const db = await getDb()
+  return db.plugins || []
+}
+
+export interface User {
+  id: number
+  username: string
+  password?: string
+  role?: number
+  base_path?: string
+  permission?: number
+  disabled?: boolean
+  otp_secret?: string
+  ssh_keys?: any[]
+  [key: string]: any
 }

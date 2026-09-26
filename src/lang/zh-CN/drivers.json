@@ -781,7 +781,8 @@
       "asc": "升序",
       "desc": "降序"
     },
-    "user_agent": "User-Agent 请求头"
+    "user_agent": "用户代理",
+    "user_agent-tips": "发送给蓝奏云 API 与直链解析时携带的客户端 User-Agent"
   },
   "LenovoNasShare": {
     "host": "Host",
@@ -1200,15 +1201,19 @@
     "root_folder_path": "Root folder path"
   },
   "Thunder": {
-    "captcha_token": "Captcha token",
-    "credit_key": "Credit key",
-    "credit_key-tips": "credit key,used for login",
-    "device_id": "Device id",
-    "password": "Password",
-    "root_folder_id": "Root folder id",
-    "space": "Space",
-    "space-tips": "device id for remote device",
-    "username": "Username"
+    "username": "用户名/手机号",
+    "password": "密码",
+    "root_folder_id": "根文件夹 ID",
+    "root_folder_id-tips": "留空为网盘根目录",
+    "captcha_token": "验证码 Token",
+    "credit_key": "信任密钥",
+    "credit_key-tips": "触发安全验证时生成的信任密钥",
+    "device_id": "设备 ID",
+    "device_id-tips": "32位十六进制字符串，留空将基于账号密码自动生成",
+    "space": "远程设备 ID",
+    "space-tips": "挂载远程设备时填写对应设备 ID，留空为个人云盘",
+    "order_by": "排序字段",
+    "order_direction": "排序方向"
   },
   "ThunderBrowser": {
     "captcha_token": "Captcha token",
@@ -1274,42 +1279,44 @@
     "username-tips": "login type is user,this is required"
   },
   "ThunderExpert": {
-    "algorithms": "Algorithms",
-    "algorithms-tips": "sign type is algorithms,this is required",
-    "captcha_sign": "Captcha sign",
-    "captcha_sign-tips": "sign type is captcha_sign,this is required",
-    "captcha_token": "Captcha token",
-    "client_id": "Client id",
-    "client_secret": "Client secret",
-    "client_version": "Client version",
-    "credit_key": "Credit key",
-    "credit_key-tips": "credit key,used for login",
-    "device_id": "Device id",
-    "download_user_agent": "Download user agent",
-    "login_type": "Login type",
+    "algorithms": "算法签名列表",
+    "algorithms-tips": "签名算法类型为内置算法摘要时必填",
+    "captcha_sign": "Captcha 签名",
+    "captcha_sign-tips": "签名算法类型为动态 Captcha 签名时必填",
+    "captcha_token": "验证码 Token",
+    "client_id": "Client ID",
+    "client_secret": "Client Secret",
+    "client_version": "客户端版本",
+    "credit_key": "信任密钥",
+    "credit_key-tips": "信任密钥，用于登录",
+    "device_id": "设备 ID",
+    "download_user_agent": "下载 User-Agent",
+    "login_type": "登录方式",
     "login_types": {
-      "refresh_token": "Refresh token",
-      "user": "User"
+      "user": "用户名密码",
+      "refresh_token": "RefreshToken 刷新令牌"
     },
-    "package_name": "Package name",
-    "password": "Password",
-    "password-tips": "login type is user,this is required",
-    "refresh_token": "Refresh token",
-    "refresh_token-tips": "login type is refresh_token,this is required",
-    "root_folder_id": "Root folder id",
-    "sign_type": "Sign type",
+    "order_by": "排序字段",
+    "order_direction": "排序方向",
+    "package_name": "包名",
+    "password": "密码",
+    "password-tips": "登录方式为用户名密码时必填",
+    "refresh_token": "RefreshToken",
+    "refresh_token-tips": "登录方式为 RefreshToken 时必填",
+    "root_folder_id": "根文件夹 ID",
+    "sign_type": "签名算法类型",
     "sign_types": {
-      "algorithms": "Algorithms",
-      "captcha_sign": "Captcha sign"
+      "algorithms": "内置算法摘要",
+      "captcha_sign": "动态 Captcha 签名"
     },
-    "space": "Space",
-    "space-tips": "device id for remote device",
-    "timestamp": "Timestamp",
-    "timestamp-tips": "sign type is captcha_sign,this is required",
-    "use_video_url": "Use video url",
-    "user_agent": "User agent",
-    "username": "Username",
-    "username-tips": "login type is user,this is required"
+    "space": "远程设备 ID",
+    "space-tips": "远程设备的设备 ID",
+    "timestamp": "时间戳",
+    "timestamp-tips": "签名算法类型为动态 Captcha 签名时必填",
+    "use_video_url": "优先使用视频媒体流直链",
+    "user_agent": "User-Agent",
+    "username": "用户名/手机号",
+    "username-tips": "登录方式为用户名密码时必填"
   },
   "ThunderX": {
     "captcha_token": "Captcha token",
@@ -1436,6 +1443,17 @@
     "vendors": {
       "other": "Other",
       "sharepoint": "Sharepoint"
+    },
+    "order_by": "排序方式",
+    "order_bys": {
+      "name": "名称",
+      "size": "大小",
+      "modified": "修改时间"
+    },
+    "order_direction": "排序方向",
+    "order_directions": {
+      "asc": "升序",
+      "desc": "降序"
     }
   },
   "WeiYun": {
@@ -1770,50 +1788,53 @@
     "limit_rate": "请求限速",
     "limit_rate-tips": "所有 API 请求限速（[limit]r/1s），0 表示不限速"
   },
-  "Thunder": {
-    "username": "用户名/手机号",
-    "password": "密码",
-    "root_folder_id": "根文件夹 ID",
-    "root_folder_id-tips": "留空为网盘根目录",
-    "captcha_token": "验证码 Token",
-    "credit_key": "信任密钥",
-    "credit_key-tips": "触发安全验证时生成的信任密钥",
-    "device_id": "设备 ID",
-    "device_id-tips": "32位十六进制字符串，留空将基于账号密码自动生成",
-    "space": "远程设备 ID",
-    "space-tips": "挂载远程设备时填写对应设备 ID，留空为个人云盘",
+  "WeiYun": {
+    "root_folder_id": "根文件夹ID",
+    "root_folder_id-tips": "展示根目录留空，程序会自动填充；只展示单个文件夹则填写文件夹ID",
+    "cookies": "Cookie",
+    "cookies-tips": "登录微云后复制任意请求中的Cookie（推荐使用微信登录，Token更稳定）",
     "order_by": "排序字段",
-    "order_direction": "排序方向"
+    "order_bys": {
+      "name": "文件名",
+      "size": "大小",
+      "updated_at": "修改时间"
+    },
+    "order_direction": "排序方向",
+    "order_directions": {
+      "asc": "升序",
+      "desc": "降序"
+    },
+    "upload_thread": "上传并发线程数",
+    "upload_thread-tips": "限制4<=thread<=32，默认4"
   },
-  "ThunderExpert": {
-    "login_type": "登录方式",
-    "login_types": {
-      "user": "用户名密码",
-      "refresh_token": "RefreshToken 刷新令牌"
-    },
-    "sign_type": "签名算法类型",
-    "sign_types": {
-      "algorithms": "内置算法摘要",
-      "captcha_sign": "动态 Captcha 签名"
-    },
-    "username": "用户名/手机号",
+  "SFTP": {
+    "address": "SSH 地址",
+    "address-tips": "SSH 主机与端口（例如 127.0.0.1:22）",
+    "username": "用户名",
+    "username-tips": "SSH 登录用户名",
     "password": "密码",
-    "refresh_token": "RefreshToken",
-    "algorithms": "算法签名列表",
-    "captcha_sign": "Captcha 签名",
-    "timestamp": "时间戳",
-    "captcha_token": "验证码 Token",
-    "credit_key": "信任密钥",
-    "device_id": "设备 ID",
-    "client_id": "Client ID",
-    "client_secret": "Client Secret",
-    "client_version": "客户端版本",
-    "package_name": "包名",
-    "user_agent": "User-Agent",
-    "download_user_agent": "下载 User-Agent",
-    "use_video_url": "优先使用视频媒体流直链",
-    "space": "远程设备 ID",
-    "order_by": "排序字段",
-    "order_direction": "排序方向"
+    "password-tips": "SSH 密码（使用私钥时可留空）",
+    "private_key": "私钥",
+    "private_key-tips": "使用私钥验证代替密码（PEM 格式文本）",
+    "passphrase": "私钥密码",
+    "passphrase-tips": "私钥的加密口令（若私钥无加密可留空）",
+    "root_folder_path": "根文件夹路径",
+    "root_folder_path-tips": "挂载的根路径（默认为 /）",
+    "ignore_symlink_error": "忽略符号链接错误",
+    "ignore_symlink_error-tips": "当软链接目标失效时忽略错误并保留条目"
+  },
+  "FTP": {
+    "address": "FTP 地址",
+    "address-tips": "FTP 服务器地址与端口（例如 127.0.0.1:21）",
+    "username": "用户名",
+    "username-tips": "FTP 登录用户名",
+    "password": "密码",
+    "password-tips": "FTP 登录密码",
+    "encoding": "编码",
+    "encoding-tips": "字符编码，通常为 utf-8，Windows FTP 常见 gbk / gb2312",
+    "cwd_list": "列出前进入目录 (CWD)",
+    "cwd_list-tips": "在获取目录列表前先执行 CWD 进入该目录",
+    "root_folder_path": "根文件夹路径",
+    "root_folder_path-tips": "挂载的根路径（默认为 /）"
   }
 }

@@ -781,7 +781,8 @@
       "asc": "Asc",
       "desc": "Desc"
     },
-    "user_agent": "User agent"
+    "user_agent": "User agent",
+    "user_agent-tips": "User-Agent sent with API and download requests"
   },
   "LenovoNasShare": {
     "host": "Host",
@@ -1436,6 +1437,17 @@
     "vendors": {
       "other": "Other",
       "sharepoint": "Sharepoint"
+    },
+    "order_by": "Order by",
+    "order_bys": {
+      "name": "Name",
+      "size": "Size",
+      "modified": "Modified"
+    },
+    "order_direction": "Order direction",
+    "order_directions": {
+      "asc": "Asc",
+      "desc": "Desc"
     }
   },
   "WeiYun": {
@@ -1769,5 +1781,54 @@
     "page_size-tips": "List API per page size (1~1150)",
     "limit_rate": "Request Rate Limit",
     "limit_rate-tips": "Limit all API request rate ([limit]r/1s), 0 = unlimited"
+  },
+  "WeiYun": {
+    "root_folder_id": "Root Folder ID",
+    "root_folder_id-tips": "Leave blank to display the root directory; or specify a subfolder ID",
+    "cookies": "Cookie",
+    "cookies-tips": "Cookie from Weiyun web console (WeChat login recommended)",
+    "order_by": "Order By",
+    "order_bys": {
+      "name": "Name",
+      "size": "Size",
+      "updated_at": "Updated At"
+    },
+    "order_direction": "Order Direction",
+    "order_directions": {
+      "asc": "Ascending",
+      "desc": "Descending"
+    },
+    "upload_thread": "Upload Threads",
+    "upload_thread-tips": "Concurrent upload threads (4<=thread<=32, default 4)"
+  },
+  "SFTP": {
+    "address": "SSH Address",
+    "address-tips": "SSH host and port (e.g. 127.0.0.1:22)",
+    "username": "Username",
+    "username-tips": "SSH login username",
+    "password": "Password",
+    "password-tips": "SSH login password (leave empty if using private key)",
+    "private_key": "Private Key",
+    "private_key-tips": "SSH private key for public-key authentication",
+    "passphrase": "Passphrase",
+    "passphrase-tips": "Passphrase for encrypted private key",
+    "root_folder_path": "Root Folder Path",
+    "root_folder_path-tips": "Root directory path to mount (default /)",
+    "ignore_symlink_error": "Ignore Symlink Error",
+    "ignore_symlink_error-tips": "Ignore broken symlink errors and keep entries"
+  },
+  "FTP": {
+    "address": "FTP Address",
+    "address-tips": "FTP server address and port (e.g. 127.0.0.1:21)",
+    "username": "Username",
+    "username-tips": "FTP login username",
+    "password": "Password",
+    "password-tips": "FTP login password",
+    "encoding": "Encoding",
+    "encoding-tips": "Character encoding, typically utf-8 or gbk / gb2312",
+    "cwd_list": "CWD Before List",
+    "cwd_list-tips": "Enter directory using CWD before listing contents",
+    "root_folder_path": "Root Folder Path",
+    "root_folder_path-tips": "Root directory path to mount (default /)"
   }
 }

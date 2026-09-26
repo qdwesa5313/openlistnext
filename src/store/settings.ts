@@ -1,11 +1,47 @@
+import { createStore } from "solid-js/store"
 import { ext, recordToArray, strToRegExp } from "~/utils"
 
-const settings: Record<string, string> = {}
+const [settings, setSettingsStore] = createStore<Record<string, string>>({})
+
+const injectCustomContent = (
+  containerId: string,
+  content: string | undefined,
+  parent: HTMLElement | null,
+) => {
+  if (typeof document === "undefined" || !parent) return
+  let container = document.getElementById(containerId)
+  if (!container) {
+    container = document.createElement("div")
+    container.id = containerId
+    parent.appendChild(container)
+  }
+  container.innerHTML = ""
+  if (!content || !content.trim()) return
+
+  try {
+    const range = document.createRange()
+    range.selectNode(container)
+    const fragment = range.createContextualFragment(content)
+
+    // Re-create script elements so that the browser executes them
+    const scripts = Array.from(fragment.querySelectorAll("script"))
+    scripts.forEach((oldScript) => {
+      const newScript = document.createElement("script")
+      Array.from(oldScript.attributes).forEach((attr) => {
+        newScript.setAttribute(attr.name, attr.value)
+      })
+      newScript.textContent = oldScript.textContent
+      oldScript.parentNode?.replaceChild(newScript, oldScript)
+    })
+
+    container.appendChild(fragment)
+  } catch (err) {
+    console.error(`Failed to inject custom content for #${containerId}:`, err)
+  }
+}
 
 export const setSettings = (items: Record<string, string>) => {
-  Object.keys(items).forEach((key) => {
-    settings[key] = items[key]
-  })
+  setSettingsStore(items)
   const version = settings["version"] || "Unknown"
   console.log(
     `%c OpenListNext %c ${version} %c https://github.com/OpenListTeam/OpenList`,
@@ -13,6 +49,23 @@ export const setSettings = (items: Record<string, string>) => {
     "color: #fff; background: #70c6be",
     "",
   )
+
+  if (typeof document !== "undefined") {
+    if (settings["customize_head"] !== undefined) {
+      injectCustomContent(
+        "customize-head",
+        settings["customize_head"],
+        document.head,
+      )
+    }
+    if (settings["customize_body"] !== undefined) {
+      injectCustomContent(
+        "customize-body",
+        settings["customize_body"],
+        document.body,
+      )
+    }
+  }
 }
 
 export const getSetting = (key: string) => settings[key] ?? ""
@@ -23,7 +76,10 @@ export const getSettingBool = (key: string) => {
 export const getSettingNumber = (key: string, defaultV?: number) => {
   const value = getSetting(key)
   if (value) {
-    return Number(value)
+    const num = Math.floor(Number(value))
+    if (!isNaN(num) && num >= 1) {
+      return num
+    }
   }
   return defaultV ?? 0
 }
@@ -90,9 +146,10 @@ export const getPagination = (): {
   size: number
   type: "all" | "pagination" | "load_more" | "auto_load_more"
 } => {
+  const rawSize = getSettingNumber("default_page_size", 20)
   return {
-    type: (getSetting("pagination_type") || "all") as any,
-    size: getSettingNumber("default_page_size", 30),
+    type: (getSetting("pagination_type") || "pagination") as any,
+    size: rawSize >= 1 ? rawSize : 20,
   }
 }
 

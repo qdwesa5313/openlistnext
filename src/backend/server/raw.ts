@@ -1,8 +1,12 @@
 import { Hono } from "hono"
 import { resolvePath } from "../internal/model/db"
 import { parseRangeHeader } from "../internal/stream/stream"
-import { getDriver } from "../internal/op/storage"
+import { flushPendingDriverState, getDriver } from "../internal/op/storage"
 import { resolveShare } from "../internal/op/share"
+import { getUserFromContext } from "./middlewares"
+import { getSignPolicy, verifyDownloadSign } from "../pkg/sign"
+import { safeErrorMessage } from "../pkg/errs"
+import { assertSafeUrl } from "../pkg/http"
 
 let fsPromises: any = null
 let createReadStream: any = null
@@ -21,6 +25,20 @@ async function initNodeModules() {
 }
 
 export const rawRouter = new Hono()
+
+const getStorageRequestContext = (c: any) => {
+  try {
+    const executionCtx = c.executionCtx
+    if (!executionCtx || typeof executionCtx.waitUntil !== "function") {
+      return undefined
+    }
+    return {
+      waitUntil: (promise: Promise<unknown>) => executionCtx.waitUntil(promise),
+    }
+  } catch {
+    return undefined
+  }
+}
 
 rawRouter.get("/*", async (c) => {
   await initNodeModules()
@@ -50,11 +68,23 @@ rawRouter.get("/*", async (c) => {
     const isSharePath =
       c.req.path.startsWith("/api/sd") || c.req.path.startsWith("/sd")
     if (isSharePath) {
-      const shareRes = await resolveShare(
-        reqPath,
-        c.req.query("pwd") || "",
-        c.env,
-      )
+      // 分享密码优先从 cookie（browser-password）读取，避免密码出现在 URL 中；
+      // 兼容旧版 ?pwd= 参数（已有分享链接/收藏夹里的旧链接仍可用）。
+      const cookieHeader = c.req.header("Cookie") || ""
+      const cookiePwdRaw =
+        cookieHeader
+          .split(";")
+          .map((s) => s.trim())
+          .find((s) => s.startsWith("browser-password="))
+          ?.split("=").slice(1).join("=") || ""
+      let cookiePwd = ""
+      try {
+        cookiePwd = cookiePwdRaw ? decodeURIComponent(cookiePwdRaw) : ""
+      } catch {
+        cookiePwd = cookiePwdRaw
+      }
+      const sharePwd = c.req.query("pwd") || cookiePwd
+      const shareRes = await resolveShare(reqPath, sharePwd, c.env)
       if (!shareRes.ok) {
         return c.text(shareRes.error || "Share not found", 404)
       }
@@ -62,6 +92,24 @@ rawRouter.get("/*", async (c) => {
         return c.text("Cannot download share root", 400)
       }
       reqPath = shareRes.realPath
+    } else {
+      const user = await getUserFromContext(c)
+      if (!user || user.disabled) {
+        return c.text("Unauthorized", 401)
+      }
+    }
+
+    // 下载签名校验（sign_all / link_expiration 启用时）：
+    // 非分享路径必须携带有效签名，防止下载链接被无限期转发/盗链。
+    if (!isSharePath) {
+      const signPolicy = await getSignPolicy(c)
+      if (signPolicy.enabled) {
+        const sign = c.req.query("sign") || ""
+        const ok = await verifyDownloadSign(c, reqPath, sign)
+        if (!ok) {
+          return c.text("Invalid or expired sign", 401)
+        }
+      }
     }
 
     const resolved = await resolvePath(reqPath)
@@ -73,7 +121,7 @@ rawRouter.get("/*", async (c) => {
     if (resolved.storage) {
       const normDriver = (resolved.storage.driver || "")
         .toLowerCase()
-        .replace(/_/g, "")
+        .replace(/[^a-z0-9]/g, "")
 
       // Remote cloud drivers: fetch download link via driver.get()
       if (normDriver !== "local") {
@@ -82,10 +130,29 @@ rawRouter.get("/*", async (c) => {
             resolved.storage.driver,
             resolved.storage,
           )
-          const fileItem = await driver.get(reqPath, resolved.physical)
+          let fileItem
+          try {
+            fileItem = await driver.get(reqPath, resolved.physical)
+          } finally {
+            await flushPendingDriverState(
+              resolved.storage.driver,
+              resolved.storage,
+              driver,
+              getStorageRequestContext(c),
+            )
+          }
 
           if (fileItem && fileItem.raw_url) {
-            if (isProxy) {
+            // WebDAV 等需要认证的驱动：强制使用代理模式，避免重定向导致认证丢失
+            const needsProxy =
+              isProxy ||
+              normDriver === "webdav" ||
+              normDriver === "sharepoint" ||
+              normDriver === "onedrive" ||
+              normDriver === "onedriveapp" ||
+              normDriver === "weiyun" ||
+              normDriver === "tencentweiyun"
+            if (needsProxy) {
               console.log(
                 `[rawRouter] Proxying download for '${reqPath}' via ${resolved.storage.driver}`,
               )
@@ -101,6 +168,12 @@ rawRouter.get("/*", async (c) => {
               // Forward Range header for video/audio/PDF seeking
               const rangeReq = c.req.header("Range")
               if (rangeReq) headers["Range"] = rangeReq
+
+              try {
+                assertSafeUrl(fileItem.raw_url, "Proxy download")
+              } catch (ssrfErr: any) {
+                return c.text(ssrfErr.message || "SSRF blocked", 403)
+              }
 
               let upstreamRes = await fetch(fileItem.raw_url, { headers })
 
@@ -172,18 +245,64 @@ rawRouter.get("/*", async (c) => {
 
               return c.body(upstreamRes.body as any, upstreamRes.status as any)
             } else {
+              try {
+                assertSafeUrl(fileItem.raw_url, "Redirect download")
+              } catch (ssrfErr: any) {
+                return c.text(ssrfErr.message || "SSRF blocked", 403)
+              }
               console.log(
                 `[rawRouter] Redirecting download for '${reqPath}' via ${resolved.storage.driver}`,
               )
               return c.redirect(fileItem.raw_url, 302)
             }
+          } else if (
+            typeof (driver as any).createReadStream === "function" &&
+            fileItem &&
+            !fileItem.is_dir
+          ) {
+            c.header("Access-Control-Allow-Origin", "*")
+            const size = fileItem.size || 0
+            const rangeHeader = c.req.header("Range")
+            if (rangeHeader && size > 0) {
+              const { start, end, chunksize } = parseRangeHeader(
+                rangeHeader,
+                size,
+              )
+              const stream = await (driver as any).createReadStream(
+                resolved.physical,
+                { start, end },
+              )
+              c.header("Content-Range", `bytes ${start}-${end}/${size}`)
+              c.header("Accept-Ranges", "bytes")
+              c.header("Content-Length", chunksize.toString())
+              c.header("Content-Type", "application/octet-stream")
+              return c.body(stream as any, 206)
+            } else {
+              if (size > 0) c.header("Content-Length", size.toString())
+              c.header("Accept-Ranges", "bytes")
+              c.header("Content-Type", "application/octet-stream")
+              const stream = await (driver as any).createReadStream(
+                resolved.physical,
+              )
+              return c.body(stream as any)
+            }
+          } else {
+            const detail =
+              fileItem?.raw_url_error ||
+              (fileItem?.is_dir
+                ? "该条目是文件夹，不可作为文件下载。"
+                : "该存储驱动未返回下载链接（raw_url 为空）。")
+            return c.text(
+              `File not found or no download link available: ${reqPath}\n${detail}`,
+              404,
+            )
           }
         } catch (e: any) {
           console.error(
             `[rawRouter] Driver get failed for '${reqPath}':`,
             e.message,
           )
-          return c.text(`Download failed: ${e.message}`, 500)
+          return c.text(`Download failed: ${safeErrorMessage(e)}`, 500)
         }
       }
     }
@@ -217,6 +336,6 @@ rawRouter.get("/*", async (c) => {
     }
   } catch (err: any) {
     console.error(`[rawRouter] Download 404 for '${reqPath0}':`, err.message)
-    return c.text(`Not found: ${err.message || err}`, 404)
+    return c.text(`Not found: ${safeErrorMessage(err, "file not found")}`, 404)
   }
 })

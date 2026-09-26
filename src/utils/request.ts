@@ -65,12 +65,22 @@ instance.interceptors.response.use(
   },
 )
 
-instance.defaults.headers.common["Authorization"] =
-  localStorage.getItem("token") || ""
+const _store =
+  typeof sessionStorage !== "undefined" ? sessionStorage : localStorage
 
-export const changeToken = (token?: string) => {
+instance.defaults.headers.common["Authorization"] =
+  sessionStorage.getItem("token") || localStorage.getItem("token") || ""
+
+export const changeToken = (token?: string, persistent?: boolean) => {
   instance.defaults.headers.common["Authorization"] = token ?? ""
-  localStorage.setItem("token", token ?? "")
+  const store = persistent ? localStorage : _store
+  store.setItem("token", token ?? "")
+}
+
+/** 清除持久化的 token（登出时调用） */
+export const clearPersistedToken = () => {
+  localStorage.removeItem("token")
+  sessionStorage.removeItem("token")
 }
 
 export { instance as r }

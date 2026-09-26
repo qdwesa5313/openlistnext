@@ -24,6 +24,7 @@ const initialObjStore = {
 
   objs: [] as StoreObj[],
   total: 0,
+  page_size: 0,
 
   readme: "",
   header: "",
@@ -63,22 +64,13 @@ export const ObjStore = {
   setTotal: (total: number) => {
     setObjStore("total", total)
   },
+  setPageSize: (size: number) => setObjStore("page_size", size),
   setReadme: (readme: string) => setObjStore("readme", readme),
   setHeader: (header: string) => setObjStore("header", header),
   setRelated: (related: Obj[]) => setObjStore("related", related),
   setWrite: (write: boolean) => setObjStore("write", write),
   setWriteContentBypass: (write_content_bypass: boolean) =>
     setObjStore("write_content_bypass", write_content_bypass),
-  // setGetResp: (resp: FsGetResp) => {
-  //   setObjStore("obj", resp.data);
-  //   setObjs(resp.data.related);
-  //   setObjStore("readme", resp.data.readme);
-  // },
-  // setListResp: (resp: FsListResp) => {
-  //   setObjs(resp.data.content);
-  //   setObjStore("readme", resp.data.readme);
-  //   setObjStore("write", resp.data.write);
-  // },
   setState: (state: State) => setObjStore("state", state),
   setDirectUploadTools: (tools?: string[]) =>
     setObjStore("direct_upload_tools", tools),
@@ -225,13 +217,27 @@ export const toggleCheckbox = () => {
 
 export { objStore }
 // browser password
+// 注：cookie 值统一 encodeURIComponent 存储（见 setPassword），读取时需解码还原
 const [_password, _setPassword] = createSignal<string>(
-  cookieStorage.getItem("browser-password") || "",
+  (() => {
+    try {
+      const raw = cookieStorage.getItem("browser-password") || ""
+      return raw ? decodeURIComponent(raw) : ""
+    } catch {
+      return cookieStorage.getItem("browser-password") || ""
+    }
+  })(),
 )
 export { _password as password }
 export const setPassword = (password: string) => {
   _setPassword(password)
-  cookieStorage.setItem("browser-password", password)
+  // 必须显式 path=/，否则 cookie 仅对设置时所在路径生效（如 /@s/xxx 分享页），
+  // 下载请求打到 /sd/xxx 时不会携带，导致分享密码校验失败。
+  // 用原生 document.cookie 写入（cookieStorage 无法传 path 选项）。
+  if (typeof document !== "undefined") {
+    const safe = encodeURIComponent(password)
+    document.cookie = `browser-password=${safe}; path=/; SameSite=Lax`
+  }
 }
 
 const getCountStr = (

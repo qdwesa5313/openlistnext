@@ -26,9 +26,25 @@ interface DriverInfo {
   common: DriverItem[]
   additional: DriverItem[]
   config: DriverConfig
+  default_mount_path?: string
 }
 
-function GetDefaultValue(type: Type, value?: string) {
+function generateDeviceId(): string {
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+  }
+  return (
+    Math.random().toString(16).substring(2).padEnd(16, "0") +
+    Math.random().toString(16).substring(2).padEnd(16, "0")
+  ).slice(0, 32)
+}
+
+function GetDefaultValue(type: Type, value?: string, name?: string) {
+  if (name === "device_id" && (!value || value === "")) {
+    return generateDeviceId()
+  }
   switch (type) {
     case Type.Bool:
       if (value) {
@@ -97,6 +113,15 @@ const AddOrEdit = () => {
   const [storage, setStorage] = createStore<Storage>({} as Storage)
   const [addition, setAddition] = createStore<Addition>({})
   const [okLoading, ok] = useFetch((): PResp<{ id: number }> => {
+    const isThunder =
+      storage.driver?.toLowerCase().includes("thunder") ||
+      storage.driver?.toLowerCase().includes("xunlei")
+    if (
+      isThunder &&
+      (!addition.device_id || (addition.device_id as string).trim() === "")
+    ) {
+      setAddition("device_id", generateDeviceId())
+    }
     setStorage("addition", JSON.stringify(addition))
     return r.post(`/admin/storage/${id ? "update" : "create"}`, storage)
   })
@@ -128,10 +153,25 @@ const AddOrEdit = () => {
           options_prefix="drivers.drivers"
           driver="drivers"
           onChange={(value) => {
-            for (const item of drivers()[value].common) {
+            const driverInfo = drivers()[value]
+            for (const item of driverInfo.common) {
+              let defaultVal = GetDefaultValue(
+                item.type,
+                item.default,
+                item.name,
+              )
+              // mount_path 为空时使用驱动配置的 default_mount_path（如 /189、/lanzou），
+              // 避免提交空路径被后端规范化成 "/" 而与根挂载冲突
+              if (
+                item.name === "mount_path" &&
+                (defaultVal === "" || defaultVal == null) &&
+                driverInfo.default_mount_path
+              ) {
+                defaultVal = driverInfo.default_mount_path
+              }
               setStorage(
                 item.name as keyof Storage,
-                GetDefaultValue(item.type, item.default) as any,
+                defaultVal as any,
               )
             }
             // clear addition first
@@ -142,10 +182,10 @@ const AddOrEdit = () => {
                 }
               }),
             )
-            for (const item of drivers()[value].additional) {
+            for (const item of driverInfo.additional) {
               setAddition(
                 item.name,
-                GetDefaultValue(item.type, item.default) as any,
+                GetDefaultValue(item.type, item.default, item.name) as any,
               )
             }
             setStorage("driver", value)

@@ -70,6 +70,14 @@ export class LanzouDriver implements StorageDriver {
     await this.client.init()
   }
 
+  /**
+   * 校验当前 Cookie 是否有效（供管理后台 /task/refresh 状态刷新调用）。
+   * 有效返回 true；失效返回 false 并附过期提示。
+   */
+  async checkCookieValid(): Promise<{ valid: boolean; error?: string }> {
+    return this.client.checkCookieValid()
+  }
+
   private isUrlMode(): boolean {
     return this.addition.type === "url"
   }
@@ -112,7 +120,15 @@ export class LanzouDriver implements StorageDriver {
     }
 
     for (let i = cachedLen; i < segs.length; i++) {
-      const name = segs[i]
+      const rawName = segs[i]
+      const decodedName = (() => {
+        try {
+          return decodeURIComponent(rawName)
+        } catch {
+          return rawName
+        }
+      })()
+
       const items = this.isUrlMode()
         ? await this.client.getFileOrFolderByShareUrl(
             parentId,
@@ -120,12 +136,20 @@ export class LanzouDriver implements StorageDriver {
           )
         : await this.client.getFolders(parentId)
 
-      const folder = items.find(
-        (f) =>
-          (f.is_folder || f.fol_id) && (f.name === name || f.name_all === name),
-      )
+      const folder = items.find((f) => {
+        if (!f.is_folder && !f.fol_id) return false
+        const fName = f.name || f.name_all || ""
+        const fId = f.fol_id || f.id || ""
+        return (
+          fName === rawName ||
+          fName === decodedName ||
+          fId === rawName ||
+          fId === decodedName
+        )
+      })
+
       if (!folder) {
-        throw new Error(`[Lanzou] 目录未找到: ${name}`)
+        throw new Error(`[Lanzou] 目录未找到: ${rawName}`)
       }
 
       parentId = folder.fol_id || folder.id || ""
@@ -144,12 +168,25 @@ export class LanzouDriver implements StorageDriver {
     parentId: string
     isDir: boolean
   }> {
-    const segs = String(physicalPath || "")
-      .split("/")
-      .filter(Boolean)
+    const clean =
+      "/" +
+      String(physicalPath || "")
+        .split("/")
+        .filter(Boolean)
+        .join("/")
+
+    const segs = clean.split("/").filter(Boolean)
     if (segs.length === 0) throw new Error("[Lanzou] 路径无效")
 
-    const name = segs[segs.length - 1]
+    const rawName = segs[segs.length - 1]
+    const decodedName = (() => {
+      try {
+        return decodeURIComponent(rawName)
+      } catch {
+        return rawName
+      }
+    })()
+
     const parentPath = "/" + segs.slice(0, segs.length - 1).join("/")
     const parentId = await this.resolveFolderId(parentPath)
 
@@ -160,22 +197,30 @@ export class LanzouDriver implements StorageDriver {
         )
       : await this.client.getAllFiles(parentId)
 
-    const found = items.find(
-      (f) =>
-        f.name === name ||
-        f.name_all === name ||
-        f.id === name ||
-        f.fol_id === name,
-    )
+    const found = items.find((f) => {
+      const fName = f.name_all || f.name || ""
+      const fId = f.fol_id || f.id || ""
+      return (
+        fName === rawName ||
+        fName === decodedName ||
+        fId === rawName ||
+        fId === decodedName
+      )
+    })
 
     if (!found) {
-      throw new Error(`[Lanzou] 文件或目录未找到: ${name}`)
+      throw new Error(`[Lanzou] 文件或目录未找到: ${rawName}`)
+    }
+
+    const isDir = Boolean(found.is_folder || found.fol_id)
+    if (isDir) {
+      this.pathIdCache.set(clean, found.fol_id || found.id || "")
     }
 
     return {
       item: found,
       parentId,
-      isDir: !!found.is_folder || !!found.fol_id,
+      isDir,
     }
   }
 
@@ -219,62 +264,74 @@ export class LanzouDriver implements StorageDriver {
       }
     }
 
-    try {
-      const { item, isDir } = await this.resolveItem(physicalPath)
-      if (isDir) {
-        return lanzouItemToFileItem(item)
-      }
+    const { item, isDir } = await this.resolveItem(physicalPath)
+    if (isDir) {
+      return lanzouItemToFileItem(item)
+    }
 
-      let downloadUrl = item.url
-      if (!downloadUrl) {
+    let downloadUrl = item.url
+    if (!downloadUrl) {
+      try {
         if (this.isUrlMode()) {
           const resolved = await this.client.getFilesByShareUrl(
             item.id || "",
             item.pwd || this.addition.share_password || "",
+            undefined,
+            // 分享页域名每个人不同（如 xxx.lanzn.com），
+            // 先探测分享页真实域名再解析直链，避免一直用兜底域名请求
+            await this.client.probeShareDomain(item.id || ""),
           )
           downloadUrl = resolved.url
           item.name_all = resolved.name_all || item.name_all
           item.size = resolved.size || item.size
         } else {
           const shareInfo = await this.client.getFileShareUrlById(item.id || "")
-          if (shareInfo.f_id) {
+          const shareId = shareInfo?.f_id || (shareInfo as any)?.id
+          // 注意：is_newd 是"上传域名"（如 https://upload.lanzouj.com），
+          // 不是分享页域名，不能作为 customShareDomain 传入（会导致分享页
+          // 请求随机失败）。getFilesByShareUrl 内部会 probeShareDomain 探测
+          // 真实分享页域名。
+          if (shareId) {
             const resolved = await this.client.getFilesByShareUrl(
-              shareInfo.f_id,
+              shareId,
               shareInfo.pwd || "",
+              undefined,
             )
             downloadUrl = resolved.url
+            if (resolved.name_all) item.name_all = resolved.name_all
+            if (resolved.size) item.size = resolved.size
           }
         }
-      }
-
-      let repairInfo: { size?: number; time?: string } | undefined
-      if (this.addition.repair_file_info && downloadUrl) {
-        repairInfo = await this.client.getFileRealInfo(downloadUrl)
-      }
-
-      const fileItem = lanzouItemToFileItem(item, repairInfo)
-      fileItem.raw_url = downloadUrl || ""
-      return fileItem
-    } catch (e) {
-      // 容错：直接探测 folderId
-      const lastSeg = segs[segs.length - 1]
-      try {
-        if (!this.isUrlMode()) {
-          await this.client.getFiles(lastSeg)
-        }
-        return {
-          name: lastSeg,
-          size: 0,
-          is_dir: true,
-          modified: new Date().toISOString(),
-          sign: lastSeg,
-          type: 1,
-          raw_url: "",
-        }
-      } catch {
-        throw e
+      } catch (err: any) {
+        console.error(
+          `[Lanzou] 解析下载链接失败 (${item.name_all || item.name}):`,
+          err.message,
+        )
+        throw new Error(
+          `[Lanzou] 获取下载直链失败 (${item.name_all || item.name}): ${err.message}`,
+        )
       }
     }
+
+    if (!downloadUrl) {
+      throw new Error(
+        `[Lanzou] 未能获取到下载直链 (${item.name_all || item.name || physicalPath})`,
+      )
+    }
+
+    let repairInfo: { size?: number; time?: string } | undefined
+    if (this.addition.repair_file_info && downloadUrl) {
+      try {
+        repairInfo = await this.client.getFileRealInfo(downloadUrl)
+      } catch {}
+    }
+
+    const fileItem = lanzouItemToFileItem(item, repairInfo)
+    fileItem.raw_url = downloadUrl || ""
+    fileItem.raw_url_headers = {
+      "User-Agent": this.client.getUserAgent(),
+    }
+    return fileItem
   }
 
   async mkdir(_virtualPath: string, physicalPath: string): Promise<void> {

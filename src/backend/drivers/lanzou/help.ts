@@ -171,19 +171,68 @@ export function calcAcwScV2(htmlContent: string): string {
 }
 
 function findJSVarFunc(key: string, data: string): string {
+  if (!key || !data) return ""
+  // 页面可能先 var key = '' 再 var key = '真实值'（覆盖式赋值），
+  // 必须取最后一个非空匹配，而不是第一个匹配
+  const takeLastNonEmpty = (
+    matches: RegExpMatchArray[],
+  ): string => {
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const v = (matches[i][1] || "").trim().replace(/^['"]|['"]$/g, "")
+      if (v) return v
+    }
+    return ""
+  }
+
   if (key !== "sasign") {
-    const match = data.match(
-      new RegExp(`var\\s+${key}\\s*=\\s*['"]?(.+?)['"]?;`),
+    // 1. var key = 'val'; or let key = "val"; or const key = val;
+    const matches1 = Array.from(
+      data.matchAll(
+        new RegExp(
+          `(?:var|let|const)\\s+${key}\\s*=\\s*['"]?([\\s\\S]*?)['"]?;`,
+          "gi",
+        ),
+      ),
     )
-    return match ? match[1] : ""
+    if (matches1.length) {
+      const v = takeLastNonEmpty(matches1)
+      if (v) return v
+    }
+
+    // 2. key = 'val';
+    const matches2 = Array.from(
+      data.matchAll(
+        new RegExp(`(?:^|[;,\\s])${key}\\s*=\\s*['"]?([\\s\\S]*?)['"]?;`, "gim"),
+      ),
+    )
+    if (matches2.length) {
+      const v = takeLastNonEmpty(matches2)
+      if (v) return v
+    }
+
+    // 3. 'key' : 'val'
+    const matches3 = Array.from(
+      data.matchAll(
+        new RegExp(`['"]?${key}['"]?\\s*:\\s*['"]?([\\s\\S]*?)['"]?`, "gi"),
+      ),
+    )
+    if (matches3.length) {
+      const v = takeLastNonEmpty(matches3)
+      if (v) return v
+    }
   } else {
     const matches = Array.from(
-      data.matchAll(new RegExp(`var\\s+${key}\\s*=\\s*['"]?(.+?)['"]?;`, "g")),
+      data.matchAll(
+        new RegExp(
+          `(?:var|let|const)?\\s*${key}\\s*=\\s*['"]?([\\s\\S]*?)['"]?;`,
+          "gi",
+        ),
+      ),
     )
     if (matches.length === 3) {
-      return matches[1][1]
+      return matches[1][1].trim().replace(/^['"]|['"]$/g, "")
     } else if (matches.length > 0) {
-      return matches[0][1]
+      return takeLastNonEmpty(matches)
     }
   }
   return ""
@@ -191,29 +240,69 @@ function findJSVarFunc(key: string, data: string): string {
 
 function jsonToMap(data: string, html: string): Record<string, string> {
   const param: Record<string, string> = {}
-  const matches = data.matchAll(findKVReg)
+  // Matches: 'key':'val', key:'val', 'key':varName, "key":"val", etc.
+  const kvRegex = /['"]?([a-zA-Z0-9_$]+)['"]?\s*:\s*(['"]?([^'",}\s]+)['"]?)/g
+  const matches = data.matchAll(kvRegex)
   for (const kv of matches) {
     const k = kv[1]
     const rawVal = kv[2]
     const v = kv[3]
-    if (v === "" || rawVal.includes("'") || /^\d+$/.test(rawVal)) {
+    if (!v) {
+      param[k] = ""
+    } else if (
+      rawVal.includes("'") ||
+      rawVal.includes('"') ||
+      /^\d+$/.test(rawVal)
+    ) {
       param[k] = v
     } else {
-      param[k] = findJSVarFunc(v, html)
+      const resolved = findJSVarFunc(v, html)
+      param[k] = resolved !== "" ? resolved : v
     }
   }
   return param
 }
 
-/**
- * 解析 HTML 中内嵌的 data: { ... } 对象并解析变量
- */
-export function htmlJsonToMap(html: string): Record<string, string> {
-  const match = html.match(findDataReg)
-  if (!match || match.length < 2) {
-    throw new Error("[Lanzou] 未能找到请求参数 data 对象")
+function formToMap(formData: string): Record<string, string> {
+  const param: Record<string, string> = {}
+  const pairs = formData.split("&")
+  for (const pair of pairs) {
+    const [k, v] = pair.split("=")
+    if (k) param[decodeURIComponent(k)] = decodeURIComponent(v || "")
   }
-  return jsonToMap(match[1], html)
+  return param
+}
+
+/**
+ * 解析 HTML 中内嵌的 data: { ... } 对象或 data : '...' 表单字符串并解析变量
+ */
+export function htmlJsonToMap(
+  html: string,
+  fullHtml?: string,
+): Record<string, string> {
+  const contextHtml = fullHtml || html
+  // 1. 尝试匹配最长 data : { ... } 对象
+  const dataMatches = Array.from(html.matchAll(/data\s*:\s*({[\s\S]*?})/g))
+  if (dataMatches.length > 0) {
+    let bestMatch = dataMatches[0][1]
+    for (const m of dataMatches) {
+      if (m[1].length > bestMatch.length) {
+        bestMatch = m[1]
+      }
+    }
+    const res = jsonToMap(bestMatch, contextHtml)
+    if (Object.keys(res).length > 0) {
+      return res
+    }
+  }
+
+  // 2. 尝试匹配 data : 'key=val&...' 字符串
+  const formMatch = html.match(/data\s*:\s*['"]([^'"]+)['"]/)
+  if (formMatch && formMatch[1].includes("=")) {
+    return formToMap(formMatch[1])
+  }
+
+  throw new Error("[Lanzou] 未能找到请求参数 data 对象")
 }
 
 /**

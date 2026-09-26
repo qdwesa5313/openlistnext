@@ -23,6 +23,7 @@ import {
 } from "~/utils"
 import { useFetch } from "./useFetch"
 import { useRouter } from "./useRouter"
+import { useT } from "./useT"
 
 let first_fetch = true
 
@@ -42,7 +43,8 @@ export const resetGlobalPage = () => {
   setGlobalPage(1)
 }
 export const usePath = () => {
-  const { pathname, to, searchParams } = useRouter()
+  const { pathname, to, searchParams, isShare } = useRouter()
+  const t = useT()
   const [, getObj] = useFetch((path: string) =>
     fsGet(
       path,
@@ -135,7 +137,18 @@ export const usePath = () => {
           ObjStore.setReadme(data.readme)
           ObjStore.setHeader(data.header)
           ObjStore.setRelated(data.related ?? [])
-          ObjStore.setRawUrl(data.raw_url)
+          // 在 raw_url 后添加 JWT token 作为 query parameter
+          // 后端 getUserFromContext 支持从 query parameter token 或 access_token 获取 JWT
+          let rawUrl = data.raw_url
+          if (rawUrl) {
+            try {
+              const token = sessionStorage.getItem("token") || localStorage.getItem("token") || ""
+              if (token) {
+                rawUrl += (rawUrl.includes("?") ? "&" : "?") + `token=${encodeURIComponent(token)}`
+              }
+            } catch {}
+          }
+          ObjStore.setRawUrl(rawUrl)
           shouldKeepState() || ObjStore.setState(State.File)
         }
       },
@@ -152,10 +165,12 @@ export const usePath = () => {
     force?: boolean,
     onlyList = false,
   ) => {
+    const currentPagination = getPagination()
     if (!size) {
-      size = pagination.size
+      size =
+        objStore.page_size > 0 ? objStore.page_size : currentPagination.size
     }
-    if (size !== undefined && pagination.type === "all") {
+    if (size !== undefined && currentPagination.type === "all") {
       size = undefined
     }
     if (!onlyList && !shouldKeepState())
@@ -165,6 +180,9 @@ export const usePath = () => {
       resp,
       (data) => {
         setGlobalPage(index ?? 1)
+        if (data.page_size) {
+          ObjStore.setPageSize(data.page_size)
+        }
         if (append) {
           appendObjs(data.content)
         } else {
@@ -196,9 +214,26 @@ export const usePath = () => {
     if (code === 403) {
       ObjStore.setState(State.NeedPassword)
       if (retry_pass) {
-        notify.error(msg)
+        // 分享密码错误时给出中文提示（"wrong password" 来自后端 resolveShare）
+        notify.error(
+          isShare() && msg === "wrong password"
+            ? t("shares.wrong_password")
+            : msg,
+        )
       }
     } else {
+      // 分享已失效/被取消/不存在时，统一给出友好提示
+      const SHARE_GONE_ERRORS = [
+        "share not found",
+        "share has been disabled",
+        "share has expired",
+        "share access count exceeded",
+        "share is empty",
+      ]
+      if (isShare() && SHARE_GONE_ERRORS.includes(msg)) {
+        ObjStore.setErr(t("shares.share_gone"))
+        return
+      }
       const basePath = me().base_path
       if (
         first_fetch &&
@@ -226,9 +261,10 @@ export const usePath = () => {
       const path = pathname()
       const scroll = window.scrollY
       clearHistory(path, globalPage)
+      const currentPagination = getPagination()
       if (
-        pagination.type === "load_more" ||
-        pagination.type === "auto_load_more"
+        currentPagination.type === "load_more" ||
+        currentPagination.type === "auto_load_more"
       ) {
         const page = globalPage
         resetGlobalPage()
@@ -242,6 +278,13 @@ export const usePath = () => {
       window.scroll({ top: scroll, behavior: "smooth" })
     },
     loadMore,
-    allLoaded: () => globalPage >= Math.ceil(objStore.total / pagination.size),
+    allLoaded: () => {
+      const effectiveSize =
+        objStore.page_size > 0 ? objStore.page_size : getPagination().size
+      return (
+        globalPage >=
+        Math.max(1, Math.ceil(objStore.total / (effectiveSize || 20)))
+      )
+    },
   }
 }
